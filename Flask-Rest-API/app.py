@@ -1,12 +1,9 @@
 from flask import Flask
 from flask_mysqldb import MySQL
+from config import MYSQL_CONFIG
 
 app = Flask(__name__)
-
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'root'
-app.config['MYSQL_DB'] = 'esportsdb'
+app.config.update(MYSQL_CONFIG)
 
 mysql = MySQL(app)
 
