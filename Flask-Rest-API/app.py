@@ -4,6 +4,7 @@ from flask import Flask, request, make_response, jsonify
 from flask_jwt_extended import JWTManager
 from flask_mysqldb import MySQL
 from dicttoxml import dicttoxml
+from werkzeug.exceptions import HTTPException
 from config import MYSQL_CONFIG
 
 app = Flask(__name__)
@@ -40,6 +41,51 @@ def success_response(data=None, message=None, status=200):
 
 def error_response(message, status):
     return format_response({'error': message}, status)
+
+def validate_game(payload, partial=False):
+    if not isinstance(payload, dict):
+        return None, "Request body must be a JSON object"
+    
+    result = {}
+    for field in ('game_name', 'game_type'):
+        if field in payload:
+            value = str(payload[field]).strip()
+            if not value:
+                return None, f"{field} must be 50 characters or fewer"
+            result[field] = value
+
+    if not partial and len(result) != 2:
+        missing = [f for f in ('game_name', 'game_type') if f not in result]
+        return None, f"Missing fields: {', '.join(missing)}"
+    
+    if partial and not result:
+        return None, "Provide at least one field to update"
+    
+    return result, None
+
+def get_game_by_id(game_id):
+    cursor = mysql.connection.cursor()
+    try:
+        cursor.execute("SELECT game_id, game_name, game_type FROM game WHERE game_id = %s", (game_id,))
+        row = cursor.fetchone()
+        if row:
+            return {'game_id': row['game_id'], 'game_name': row['game_name'], 'game_type': row['game_type']}
+        return None
+    finally:
+        cursor.close()
+
+
+@app.errorhandler(404)
+def handle_404(_):
+    return error_response('Resource not found', 404)
+
+@app.errorhandler(Exception)
+def handle_exception(err):
+    if isinstance(err, HTTPException):
+        return err
+    if isinstance(err, MySQLdb.Error):
+        return error_response('Database error occurred', 500)
+    return error_response('Internal server error', 500)
 
 
 @app.route('/')
