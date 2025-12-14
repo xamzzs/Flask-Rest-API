@@ -1,7 +1,7 @@
 from datetime import timedelta
 import MySQLdb
 from flask import Flask, request, make_response, jsonify
-from flask_jwt_extended import JWTManager, create_access_token
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 from flask_mysqldb import MySQL
 from dicttoxml import dicttoxml
 from werkzeug.exceptions import HTTPException
@@ -104,6 +104,101 @@ def login():
     token = create_access_token(identity=username)
     return success_response({'access_token': token}, 'Login successful')
 
+@app.route('/games', methods=['GET'])
+@jwt_required()
+def list_games():
+    name_filter = request.args.get('game_name', '').strip()
+    type_filter = request.args.get('game_type', '').strip()
+
+    cursor = mysql.connection.cursor()
+    try:
+        query = "SELECT game_id, game_name, game_type FROM game"
+        conditions = []
+        params = []
+
+        if name_filter:
+            conditions.append("game_name LIKE %s")
+            params.append(f"%{name_filter}%")
+        if type_filter:
+            conditions.append("game_type LIKE %s")
+            params.append(f"%{type_filter}%")
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY game_id"
+
+        cursor.execute(query, params)
+        games = [{'game_id': r['game_id'], 'game_name': r['game_name'], 'game_type': r['game_type']}
+                 for r in cursor.fetchall()]
+    finally:
+        cursor.close()
+
+    msg = "Games found" if games else "No games matched your search"
+    return success_response(games, msg)
+
+@app.route('/games/<int:game_id>', methods=['GET'])
+@jwt_required()
+def get_game(game_id):
+    game = get_game_by_id(game_id)
+    if not game:
+        return error_response('Game not found', 404)
+    return success_response(game)
+
+@app.route('/games', methods=['POST'])
+@jwt_required()
+def create_game():
+    data = request.get_json(silent=True)
+    clean, err = validate_game(data)
+    if err:
+        return error_response(err, 400)
+
+    cursor = mysql.connection.cursor()
+    try:
+        cursor.execute("INSERT INTO game (game_name, game_type) VALUES (%s, %s)",
+                       (clean['game_name'], clean['game_type']))
+        mysql.connection.commit()
+        new_id = cursor.lastrowid
+    finally:
+        cursor.close()
+
+    new_game = get_game_by_id(new_id)
+    return success_response(new_game, 'Game created', 201)
+
+@app.route('/games/<int:game_id>', methods=['PUT'])
+@jwt_required()
+def update_game(game_id):
+    data = request.get_json(silent=True)
+    clean, err = validate_game(data, partial=True)
+    if err:
+        return error_response(err, 400)
+
+    cursor = mysql.connection.cursor()
+    try:
+        set_clause = ', '.join(f"{k} = %s" for k in clean)
+        params = list(clean.values()) + [game_id]
+        cursor.execute(f"UPDATE game SET {set_clause} WHERE game_id = %s", params)
+        mysql.connection.commit()
+        if cursor.rowcount == 0:
+            return error_response('Game not found', 404)
+    finally:
+        cursor.close()
+
+    updated_game = get_game_by_id(game_id)
+    return success_response(updated_game, 'Game updated')
+
+@app.route('/games/<int:game_id>', methods=['DELETE'])
+@jwt_required()
+def delete_game(game_id):
+    cursor = mysql.connection.cursor()
+    try:
+        cursor.execute("DELETE FROM game WHERE game_id = %s", (game_id,))
+        mysql.connection.commit()
+        if cursor.rowcount == 0:
+            return error_response('Game not found', 404)
+    finally:
+        cursor.close()
+
+    return success_response(message='Game deleted')
 
 if __name__ == "__main__":
     app.run(debug=True)
