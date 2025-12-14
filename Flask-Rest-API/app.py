@@ -1,15 +1,10 @@
 from datetime import timedelta
 import MySQLdb
-from flask import Flask
+from flask import Flask, request, make_response, jsonify
 from flask_jwt_extended import JWTManager
 from flask_mysqldb import MySQL
+from dicttoxml import dicttoxml
 from config import MYSQL_CONFIG
-
-class APIError(Exception):
-    def __init__(self, message, status_code=400):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
 
 app = Flask(__name__)
 app.config.update(MYSQL_CONFIG)
@@ -21,11 +16,31 @@ mysql = MySQL(app)
 jwt = JWTManager(app)
 
 VALID_USER = {"username": "admin", "password": "admin123"}
-SEARCHABLE_FIELDS = {
-    'game_id': 'game_id',
-    'game_name': 'game_name',
-    'game_type': 'game_type'
-}
+
+def format_type():
+    fmt = request.args.get('format', 'json').lower()
+    return fmt if fmt in ('json', 'xml') else 'json'
+
+def format_response(payload, status=200):
+    fmt = format_type()
+    if fmt == 'xml':
+        xml = dicttoxml(payload, custom_root='response', attr_type=False)
+        response = make_response(xml, status)
+        response.headers['Content-Type'] = 'application/xml'
+        return response
+    return make_response(jsonify(payload), status)
+
+def success_response(data=None, message=None, status=200):
+    body = {}
+    if message:
+        body['message'] = message
+    if data is not None:
+        body['data'] = data
+    return format_response(body, status)
+
+def error_response(message, status):
+    return format_response({'error': message}, status)
+
 
 @app.route('/')
 def home():
