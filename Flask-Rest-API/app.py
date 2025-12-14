@@ -1,7 +1,7 @@
 from datetime import timedelta
 import MySQLdb
 from flask import Flask, request, make_response, jsonify
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, create_access_token
 from flask_mysqldb import MySQL
 from dicttoxml import dicttoxml
 from werkzeug.exceptions import HTTPException
@@ -90,7 +90,19 @@ def handle_exception(err):
 
 @app.route('/')
 def home():
-    return "Hello, Flask!"
+    return success_response(message='API is running')
+
+@app.route('/login', methods=['POST'])
+def login():
+    creds = request.get_json(silent=True) or {}
+    username = str(creds.get('username', '')).strip()
+    password = str(creds.get('password', '')).strip()
+
+    if username != VALID_USER['username'] or password != VALID_USER['password']:
+        return error_response('Invalid username or password', 401)
+
+    token = create_access_token(identity=username)
+    return success_response({'access_token': token}, 'Login successful')
 
 
 if __name__ == "__main__":
